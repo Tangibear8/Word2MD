@@ -3,41 +3,53 @@ name: Convert Files to Markdown
 on:
   push:
     paths:
-      - 'uploads/**'
-  workflow_dispatch:
+      - 'uploads/**'  # 當上傳檔案到 uploads 資料夾時觸發
+  workflow_dispatch:  # 手動執行工作流
 
 jobs:
   convert:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      
+    timeout-minutes: 30  # 設置超時限制為 30 分鐘
+
     steps:
-      - uses: actions/checkout@v3
-      
+      - name: Checkout repository
+        uses: actions/checkout@v3  # 檢出儲存庫內容
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-          
+          python-version: '3.10'  # 設定 Python 版本
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install markitdown
-          
-      - name: Convert files
+          pip install pdfplumber
+
+      - name: Convert PDF to Markdown
         run: |
           mkdir -p docs/converted
-          for file in uploads/*; do
-            if [ -f "$file" ] && [ "$(basename "$file")" != ".gitkeep" ]; then
+          for file in uploads/*.pdf; do
+            if [ -f "$file" ]; then
               filename=$(basename "$file")
               output_file="docs/converted/${filename%.*}.md"
               echo "Converting $filename to Markdown..."
-              # 使用管道方式运行 markitdown
-              cat "$file" | markitdown > "$output_file" || echo "Failed to convert $filename"
+              python -c "
+import pdfplumber
+with pdfplumber.open('$file') as pdf:
+    md_content = ''
+    for page in pdf.pages:
+        md_content += page.extract_text() + '\n'
+        for table in page.extract_tables():
+            for row in table:
+                md_content += '| ' + ' | '.join(row) + ' |\n'
+    with open('$output_file', 'w', encoding='utf-8') as f:
+        f.write(md_content)
+              " || echo "Failed to convert $filename"
             fi
           done
-          
+
       - name: Commit converted files
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
